@@ -30,6 +30,7 @@ import org.apache.hadoop.crypto.key.KeyProvider;
 import org.apache.hadoop.fs.BlockLocation;
 import org.apache.hadoop.fs.FileAlreadyExistsException;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.PathIsNotEmptyDirectoryException;
 import org.apache.hadoop.hdds.annotation.InterfaceAudience;
 import org.apache.hadoop.hdds.client.ReplicationFactor;
 import org.apache.hadoop.hdds.client.ReplicationType;
@@ -47,6 +48,7 @@ import org.apache.hadoop.ozone.client.OzoneClientFactory;
 import org.apache.hadoop.ozone.client.OzoneKey;
 import org.apache.hadoop.ozone.client.OzoneVolume;
 import org.apache.hadoop.ozone.client.io.OzoneOutputStream;
+import org.apache.hadoop.ozone.om.OMConfigKeys;
 import org.apache.hadoop.ozone.om.exceptions.OMException;
 import org.apache.hadoop.ozone.om.helpers.OmKeyInfo;
 import org.apache.hadoop.ozone.om.helpers.OmKeyLocationInfo;
@@ -254,6 +256,7 @@ public class BasicOzoneClientAdapterImpl implements OzoneClientAdapter {
     return true;
   }
 
+
   /**
    * Helper method to delete an object specified by key name in bucket.
    *
@@ -261,12 +264,32 @@ public class BasicOzoneClientAdapterImpl implements OzoneClientAdapter {
    * @return true if the key is deleted, false otherwise
    */
   @Override
-  public boolean deleteObject(String keyName) {
+  public boolean deleteObject(String keyName) throws IOException {
+    return deleteObject(keyName, false);
+  }
+
+  /**
+   * Helper method to delete an object specified by key name in bucket.
+   *
+   * @param keyName key name to be deleted
+   * @param recursive recursive deletion of all sub path keys if true,
+   *                  otherwise non-recursive
+   * @return true if the key is deleted, false otherwise
+   */
+  @Override
+  public boolean deleteObject(String keyName, boolean recursive)
+      throws IOException {
     LOG.trace("issuing delete for key {}", keyName);
     try {
       incrementCounter(Statistic.OBJECTS_DELETED, 1);
-      bucket.deleteKey(keyName);
+      bucket.deleteDirectory(keyName, recursive);
       return true;
+    } catch (OMException ome) {
+      LOG.error("delete key failed {}", ome.getMessage());
+      if (OMException.ResultCodes.DIRECTORY_NOT_EMPTY == ome.getResult()) {
+        throw new PathIsNotEmptyDirectoryException(ome.getMessage());
+      }
+      return false;
     } catch (IOException ioe) {
       LOG.error("delete key failed {}", ioe.getMessage());
       return false;
@@ -523,4 +546,19 @@ public class BasicOzoneClientAdapterImpl implements OzoneClientAdapter {
     return blockLocations;
   }
 
+  @Override
+  public boolean isFSOptimizedBucket() {
+    // layout version V1 represents optimized FS path
+    boolean layoutVersionEnabled =
+            StringUtils.equalsIgnoreCase(
+                    OMConfigKeys.OZONE_OM_LAYOUT_VERSION_V1,
+                    bucket.getMetadata()
+                            .get(OMConfigKeys.OZONE_OM_LAYOUT_VERSION));
+
+    boolean fsEnabled =
+            Boolean.parseBoolean(bucket.getMetadata()
+                    .get(OMConfigKeys.OZONE_OM_ENABLE_FILESYSTEM_PATHS));
+
+    return layoutVersionEnabled && fsEnabled;
+  }
 }

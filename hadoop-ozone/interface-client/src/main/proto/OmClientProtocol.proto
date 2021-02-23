@@ -321,6 +321,7 @@ enum Status {
 
     QUOTA_ERROR = 67;
 
+    DIRECTORY_NOT_EMPTY = 68;
 }
 
 /**
@@ -731,6 +732,9 @@ message KeyArgs {
 
     // This will be set by leader OM in HA and update the original request.
     optional FileEncryptionInfoProto fileEncryptionInfo = 15;
+
+    // This will be set when user performs delete directory recursively.
+    optional bool recursive = 16;
 }
 
 message KeyLocation {
@@ -771,6 +775,18 @@ message KeyInfo {
     repeated OzoneAclInfo acls = 13;
     optional uint64 objectID = 14;
     optional uint64 updateID = 15;
+    optional uint64 parentID = 16;
+}
+
+message DirectoryInfo {
+    required string name = 1;
+    required uint64 creationTime = 2;
+    required uint64 modificationTime = 3;
+    repeated hadoop.hdds.KeyValue metadata = 4;
+    repeated OzoneAclInfo acls = 5;
+    required uint64 objectID = 6;
+    required uint64 updateID = 7;
+    required uint64 parentID = 8;
 }
 
 message RepeatedKeyInfo {
@@ -1080,6 +1096,7 @@ message MultipartKeyInfo {
     repeated PartKeyInfo partKeyInfoList = 5;
     optional uint64 objectID = 6;
     optional uint64 updateID = 7;
+    optional uint64 parentID = 8;
 }
 
 message PartKeyInfo {

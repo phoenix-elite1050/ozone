@@ -18,6 +18,8 @@
 package org.apache.hadoop.ozone.client.rpc;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
@@ -47,24 +49,33 @@ import org.apache.hadoop.ozone.client.OzoneVolume;
 import org.apache.hadoop.ozone.client.io.KeyOutputStream;
 import org.apache.hadoop.ozone.client.io.OzoneInputStream;
 import org.apache.hadoop.ozone.client.io.OzoneOutputStream;
+import org.apache.hadoop.ozone.om.OMConfigKeys;
 import org.apache.hadoop.ozone.om.OzoneManager;
+import org.apache.hadoop.ozone.om.exceptions.OMException;
 import org.apache.hadoop.ozone.om.helpers.OmKeyArgs;
 import org.apache.hadoop.ozone.om.helpers.OmKeyLocationInfo;
+import org.apache.hadoop.ozone.om.request.TestOMRequestUtils;
 
-import org.junit.AfterClass;
+import org.junit.After;
 import org.junit.Assert;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.fail;
-import org.junit.BeforeClass;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.ExpectedException;
 import org.junit.rules.Timeout;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
+
+import static org.junit.Assert.assertEquals;
+
+import org.junit.rules.ExpectedException;
 
 /**
  * Test read retries from multiple nodes in the pipeline.
  */
+@RunWith(Parameterized.class)
 public class TestReadRetries {
 
   /**
@@ -76,24 +87,37 @@ public class TestReadRetries {
   @Rule
   public ExpectedException thrown = ExpectedException.none();
 
-  private static MiniOzoneCluster cluster = null;
-  private static OzoneClient ozClient = null;
-  private static ObjectStore store = null;
-  private static OzoneManager ozoneManager;
-  private static StorageContainerLocationProtocolClientSideTranslatorPB
+  private MiniOzoneCluster cluster = null;
+  private OzoneClient ozClient = null;
+  private ObjectStore store = null;
+  private OzoneManager ozoneManager;
+  private StorageContainerLocationProtocolClientSideTranslatorPB
       storageContainerLocationClient;
 
   private static final String SCM_ID = UUID.randomUUID().toString();
+  private String layoutVersion;
 
+  public TestReadRetries(String layoutVersion) {
+    this.layoutVersion = layoutVersion;
+  }
+
+  @Parameterized.Parameters
+  public static Collection<Object[]> data() {
+    return Arrays.asList(
+            new Object[]{OMConfigKeys.OZONE_OM_LAYOUT_VERSION_DEFAULT},
+            new Object[]{OMConfigKeys.OZONE_OM_LAYOUT_VERSION_V1});
+  }
 
   /**
    * Create a MiniOzoneCluster for testing.
    * @throws Exception
    */
-  @BeforeClass
-  public static void init() throws Exception {
+  @Before
+  public void init() throws Exception {
     OzoneConfiguration conf = new OzoneConfiguration();
     conf.setInt(ScmConfigKeys.OZONE_SCM_PIPELINE_OWNER_CONTAINER_COUNT, 1);
+    TestOMRequestUtils.configureFSOptimizedPaths(conf,
+            true, layoutVersion);
     cluster = MiniOzoneCluster.newBuilder(conf)
         .setNumDatanodes(3)
         .setScmId(SCM_ID)
@@ -112,8 +136,8 @@ public class TestReadRetries {
   /**
    * Close OzoneClient and shutdown MiniOzoneCluster.
    */
-  @AfterClass
-  public static void shutdown() throws IOException {
+  @After
+  public void shutdown() throws IOException {
     if(ozClient != null) {
       ozClient.close();
     }
@@ -140,7 +164,7 @@ public class TestReadRetries {
     volume.createBucket(bucketName);
     OzoneBucket bucket = volume.getBucket(bucketName);
 
-    String keyName = UUID.randomUUID().toString();
+    String keyName = "a/b/c/" + UUID.randomUUID().toString();
 
     OzoneOutputStream out = bucket
         .createKey(keyName, value.getBytes(UTF_8).length, ReplicationType.RATIS,
@@ -188,6 +212,13 @@ public class TestReadRetries {
     cluster.shutdownHddsDatanode(datanodeDetails);
     // try to read, this should be successful
     readKey(bucket, keyName, value);
+
+    // read intermediate directory
+    verifyIntermediateDir(bucket, "a/b/c/");
+    verifyIntermediateDir(bucket, "a/b/c");
+    verifyIntermediateDir(bucket, "/a/b/c/");
+    verifyIntermediateDir(bucket, "/a/b/c");
+
     // shutdown the second datanode
     datanodeDetails = datanodes.get(1);
     cluster.shutdownHddsDatanode(datanodeDetails);
@@ -208,6 +239,17 @@ public class TestReadRetries {
       // are available
     }
     factory.releaseClient(clientSpi, false);
+  }
+
+  private void verifyIntermediateDir(OzoneBucket bucket,
+      String dir) throws IOException {
+    try {
+      bucket.getKey(dir);
+      fail("Should throw exception for directory listing");
+    } catch (OMException ome) {
+      // expected
+      assertEquals(OMException.ResultCodes.KEY_NOT_FOUND, ome.getResult());
+    }
   }
 
   private void readKey(OzoneBucket bucket, String keyName, String data)

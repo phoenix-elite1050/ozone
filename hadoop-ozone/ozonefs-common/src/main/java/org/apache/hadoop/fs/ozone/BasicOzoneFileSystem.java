@@ -314,6 +314,7 @@ public class BasicOzoneFileSystem extends FileSystem {
 
     String srcPath = src.toUri().getPath();
     String dstPath = dst.toUri().getPath();
+    // TODO: Discuss do we need to throw exception.
     if (srcPath.equals(dstPath)) {
       return true;
     }
@@ -323,6 +324,10 @@ public class BasicOzoneFileSystem extends FileSystem {
       // Cannot rename root of file system
       LOG.trace("Cannot rename the root of a filesystem");
       return false;
+    }
+
+    if (adapter.isFSOptimizedBucket()) {
+      return renameV1(srcPath, dstPath);
     }
 
     // Check if the source exists
@@ -405,6 +410,21 @@ public class BasicOzoneFileSystem extends FileSystem {
     return result;
   }
 
+  private boolean renameV1(String srcPath, String dstPath) throws IOException {
+    try {
+      adapter.renameKey(srcPath, dstPath);
+    } catch (OMException ome) {
+      LOG.error("rename key failed: {}. source:{}, destin:{}",
+              ome.getMessage(), srcPath, dstPath);
+      if (OMException.ResultCodes.KEY_ALREADY_EXISTS == ome.getResult()) {
+        return false;
+      } else {
+        throw ome;
+      }
+    }
+    return true;
+  }
+
   /**
    * Intercept rename to trash calls from TrashPolicyDefault.
    */
@@ -485,6 +505,17 @@ public class BasicOzoneFileSystem extends FileSystem {
     incrementCounter(Statistic.INVOCATION_DELETE, 1);
     statistics.incrementWriteOps(1);
     LOG.debug("Delete path {} - recursive {}", f, recursive);
+
+    if (adapter.isFSOptimizedBucket()) {
+      if (f.isRoot()) {
+        LOG.warn("Cannot delete root directory.");
+        return false;
+      }
+
+      String key = pathToKey(f);
+      return adapter.deleteObject(key, recursive);
+    }
+
     FileStatus status;
     try {
       status = getFileStatus(f);

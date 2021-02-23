@@ -33,14 +33,21 @@ import org.apache.hadoop.ozone.om.request.bucket.acl.OMBucketAddAclRequest;
 import org.apache.hadoop.ozone.om.request.bucket.acl.OMBucketRemoveAclRequest;
 import org.apache.hadoop.ozone.om.request.bucket.acl.OMBucketSetAclRequest;
 import org.apache.hadoop.ozone.om.request.file.OMDirectoryCreateRequest;
+import org.apache.hadoop.ozone.om.request.file.OMDirectoryCreateRequestV1;
 import org.apache.hadoop.ozone.om.request.file.OMFileCreateRequest;
+import org.apache.hadoop.ozone.om.request.file.OMFileCreateRequestV1;
 import org.apache.hadoop.ozone.om.request.key.OMKeysDeleteRequest;
 import org.apache.hadoop.ozone.om.request.key.OMAllocateBlockRequest;
+import org.apache.hadoop.ozone.om.request.key.OMAllocateBlockRequestV1;
 import org.apache.hadoop.ozone.om.request.key.OMKeyCommitRequest;
+import org.apache.hadoop.ozone.om.request.key.OMKeyCommitRequestV1;
 import org.apache.hadoop.ozone.om.request.key.OMKeyCreateRequest;
+import org.apache.hadoop.ozone.om.request.key.OMKeyCreateRequestV1;
 import org.apache.hadoop.ozone.om.request.key.OMKeyDeleteRequest;
+import org.apache.hadoop.ozone.om.request.key.OMKeyDeleteRequestV1;
 import org.apache.hadoop.ozone.om.request.key.OMKeyPurgeRequest;
 import org.apache.hadoop.ozone.om.request.key.OMKeyRenameRequest;
+import org.apache.hadoop.ozone.om.request.key.OMKeyRenameRequestV1;
 import org.apache.hadoop.ozone.om.request.key.OMKeysRenameRequest;
 import org.apache.hadoop.ozone.om.request.key.OMTrashRecoverRequest;
 import org.apache.hadoop.ozone.om.request.key.acl.OMKeyAddAclRequest;
@@ -50,8 +57,10 @@ import org.apache.hadoop.ozone.om.request.key.acl.prefix.OMPrefixAddAclRequest;
 import org.apache.hadoop.ozone.om.request.key.acl.prefix.OMPrefixRemoveAclRequest;
 import org.apache.hadoop.ozone.om.request.key.acl.prefix.OMPrefixSetAclRequest;
 import org.apache.hadoop.ozone.om.request.s3.multipart.S3InitiateMultipartUploadRequest;
+import org.apache.hadoop.ozone.om.request.s3.multipart.S3InitiateMultipartUploadRequestV1;
 import org.apache.hadoop.ozone.om.request.s3.multipart.S3MultipartUploadAbortRequest;
 import org.apache.hadoop.ozone.om.request.s3.multipart.S3MultipartUploadCommitPartRequest;
+import org.apache.hadoop.ozone.om.request.s3.multipart.S3MultipartUploadCommitPartRequestV1;
 import org.apache.hadoop.ozone.om.request.s3.multipart.S3MultipartUploadCompleteRequest;
 import org.apache.hadoop.ozone.om.request.s3.security.S3GetSecretRequest;
 import org.apache.hadoop.ozone.om.request.security.OMCancelDelegationTokenRequest;
@@ -83,8 +92,23 @@ import static org.apache.hadoop.ozone.om.OmMetadataManagerImpl.TRANSACTION_INFO_
  */
 public final class OzoneManagerRatisUtils {
 
+  // TODO: Temporary workaround for OM upgrade path and will be replaced once
+  //  upgrade HDDS-3698 story reaches consensus.
+  private static boolean isBucketFSOptimized = false;
+
   private OzoneManagerRatisUtils() {
   }
+
+  /**
+   * Sets enabled/disabled file system optimized path property. A true value
+   * represents enabled, false represents disabled.
+   *
+   * @param enabledFSO enabled/disabled file system optimized
+   */
+  public static void setBucketFSOptimized(boolean enabledFSO) {
+    OzoneManagerRatisUtils.isBucketFSOptimized = enabledFSO;
+  }
+
   /**
    * Create OMClientRequest which encapsulates the OMRequest.
    * @param omRequest
@@ -119,28 +143,55 @@ public final class OzoneManagerRatisUtils {
     case SetBucketProperty:
       return new OMBucketSetPropertyRequest(omRequest);
     case AllocateBlock:
+      if (isBucketFSOptimized()) {
+        return new OMAllocateBlockRequestV1(omRequest);
+      }
       return new OMAllocateBlockRequest(omRequest);
     case CreateKey:
+      if (isBucketFSOptimized()) {
+        return new OMKeyCreateRequestV1(omRequest);
+      }
       return new OMKeyCreateRequest(omRequest);
     case CommitKey:
+      if (isBucketFSOptimized()) {
+        return new OMKeyCommitRequestV1(omRequest);
+      }
       return new OMKeyCommitRequest(omRequest);
     case DeleteKey:
+      if (isBucketFSOptimized()) {
+        return new OMKeyDeleteRequestV1(omRequest);
+      }
       return new OMKeyDeleteRequest(omRequest);
     case DeleteKeys:
       return new OMKeysDeleteRequest(omRequest);
     case RenameKey:
+      if (isBucketFSOptimized()) {
+        return new OMKeyRenameRequestV1(omRequest);
+      }
       return new OMKeyRenameRequest(omRequest);
     case RenameKeys:
       return new OMKeysRenameRequest(omRequest);
     case CreateDirectory:
+      if (isBucketFSOptimized()) {
+        return new OMDirectoryCreateRequestV1(omRequest);
+      }
       return new OMDirectoryCreateRequest(omRequest);
     case CreateFile:
+      if (isBucketFSOptimized()) {
+        return new OMFileCreateRequestV1(omRequest);
+      }
       return new OMFileCreateRequest(omRequest);
     case PurgeKeys:
       return new OMKeyPurgeRequest(omRequest);
     case InitiateMultiPartUpload:
+      if (isBucketFSOptimized()) {
+        return new S3InitiateMultipartUploadRequestV1(omRequest);
+      }
       return new S3InitiateMultipartUploadRequest(omRequest);
     case CommitMultiPartUpload:
+      if (isBucketFSOptimized()) {
+        return new S3MultipartUploadCommitPartRequestV1(omRequest);
+      }
       return new S3MultipartUploadCommitPartRequest(omRequest);
     case AbortMultiPartUpload:
       return new S3MultipartUploadAbortRequest(omRequest);
@@ -308,4 +359,15 @@ public final class OzoneManagerRatisUtils {
 
     return true;
   }
+
+  /**
+   * Returns enabled/disabled file system optimized path property. A true value
+   * represents FSO path is enabled, false represents disabled.
+   *
+   * @return true or false.
+   */
+  public static boolean isBucketFSOptimized() {
+    return isBucketFSOptimized;
+  }
+
 }

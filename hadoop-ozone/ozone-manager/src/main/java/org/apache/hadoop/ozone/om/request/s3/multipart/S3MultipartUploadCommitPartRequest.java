@@ -129,16 +129,16 @@ public class S3MultipartUploadCommitPartRequest extends OMKeyRequest {
       validateBucketAndVolume(omMetadataManager, volumeName, bucketName);
 
       String uploadID = keyArgs.getMultipartUploadID();
-      multipartKey = omMetadataManager.getMultipartKey(volumeName, bucketName,
-          keyName, uploadID);
+      multipartKey = getMultipartKey(volumeName, bucketName, keyName,
+              omMetadataManager, uploadID);
 
       multipartKeyInfo = omMetadataManager.getMultipartInfoTable()
           .get(multipartKey);
 
       long clientID = multipartCommitUploadPartRequest.getClientID();
 
-      openKey = omMetadataManager.getOpenKey(
-          volumeName, bucketName, keyName, clientID);
+      openKey = getOpenKey(volumeName, bucketName, keyName, omMetadataManager,
+              clientID);
 
       String ozoneKey = omMetadataManager.getOzoneKey(
           volumeName, bucketName, keyName);
@@ -248,6 +248,31 @@ public class S3MultipartUploadCommitPartRequest extends OMKeyRequest {
       }
     }
 
+    logResult(ozoneManager, multipartCommitUploadPartRequest, keyArgs,
+            auditMap, volumeName, bucketName, keyName, exception, partName,
+            result);
+
+    return omClientResponse;
+  }
+
+  private String getOpenKey(String volumeName, String bucketName,
+      String keyName, OMMetadataManager omMetadataManager, long clientID) {
+    return omMetadataManager.getOpenKey(volumeName, bucketName,
+            keyName, clientID);
+  }
+
+  private String getMultipartKey(String volumeName, String bucketName,
+      String keyName, OMMetadataManager omMetadataManager, String uploadID) {
+    return omMetadataManager.getMultipartKey(volumeName, bucketName,
+        keyName, uploadID);
+  }
+
+  @SuppressWarnings("parameternumber")
+  protected void logResult(OzoneManager ozoneManager,
+      MultipartCommitUploadPartRequest multipartCommitUploadPartRequest,
+      KeyArgs keyArgs, Map<String, String> auditMap, String volumeName,
+      String bucketName, String keyName, IOException exception,
+      String partName, Result result) {
     // audit log
     // Add MPU related information.
     auditMap.put(OzoneConsts.MULTIPART_UPLOAD_PART_NUMBER,
@@ -273,8 +298,6 @@ public class S3MultipartUploadCommitPartRequest extends OMKeyRequest {
       LOG.error("Unrecognized Result for S3MultipartUploadCommitPartRequest: " +
           "{}", multipartCommitUploadPartRequest);
     }
-
-    return omClientResponse;
   }
 
 }
